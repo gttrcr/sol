@@ -1,6 +1,5 @@
 #include <iostream>
 #include <stdint.h>
-#include <chrono>
 #include <thread>
 #include <cmath>
 #include <climits>
@@ -9,246 +8,404 @@
 #include <fstream>
 #include <vector>
 #include <random>
+#include <sstream>
+#include <atomic>
 
-#define SMALLEST_CPP_TYPE unsigned char
 #define BIGGEST_CPP_TYPE unsigned long long int
-#define OUTPUT_PRECISION 20
+#define DECIMAL_TYPE double
+#define SMALLEST_CPP_TYPE unsigned char
+
+#pragma region PLATFORM DEPENDENCIES
+
+unsigned int system_line = 0;
+unsigned int console_line = 0;
 
 #ifdef _WIN32
 #include <intrin.h>
 #include <windows.h>
+HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
-uint64_t rdtsc()
+BIGGEST_CPP_TYPE rdtsc()
 {
-    return __rdtsc();
+	return __rdtsc();
 }
 
 BIGGEST_CPP_TYPE get_available_system_memory()
 {
-    MEMORYSTATUSEX status;
-    status.dwLength = sizeof(status);
-    GlobalMemoryStatusEx(&status);
-    return status.ullAvailPhys;
+	MEMORYSTATUSEX status{};
+	status.dwLength = sizeof(status);
+	GlobalMemoryStatusEx(&status);
+	return status.ullAvailPhys;
+}
+
+void get_cursor_position(unsigned int& x, unsigned int& y)
+{
+	CONSOLE_SCREEN_BUFFER_INFO cbsi;
+	GetConsoleScreenBufferInfo(hConsole, &cbsi);
+	x = cbsi.dwCursorPosition.X;
+	y = cbsi.dwCursorPosition.Y;
+}
+
+void set_cursor_position(const unsigned int& x, const unsigned int& y)
+{
+	COORD pos = { x, y };
+	SetConsoleCursorPosition(hConsole, pos);
+}
+
+void print(const std::string& str)
+{
+	std::cout << str;
+}
+
+std::string get()
+{
+	std::string str;
+	std::getline(std::cin, str);
+	return str;
+}
+
+void platform_exit()
+{
 }
 #else
 #include <x86intrin.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/sysinfo.h>
+#include <ncurses.h>
+WINDOW* win = initscr();
 
-uint64_t rdtsc()
+BIGGEST_CPP_TYPE rdtsc()
 {
-    unsigned int lo, hi;
-    __asm__ __volatile__("rdtsc"
-                         : "=a"(lo), "=d"(hi));
-    return ((uint64_t)hi << 32) | lo;
+	unsigned int lo, hi;
+	__asm__ __volatile__("rdtsc"
+		: "=a"(lo), "=d"(hi));
+	return ((uint64_t)hi << 32) | lo;
 }
 
 BIGGEST_CPP_TYPE get_available_system_memory()
 {
-    struct sysinfo memInfo;
-    sysinfo(&memInfo);
-    return memInfo.freeram;
+	struct sysinfo memInfo;
+	sysinfo(&memInfo);
+	return memInfo.freeram;
+}
+
+void get_cursor_position(unsigned int& x, unsigned int& y)
+{
+	getyx(win, y, x);
+}
+
+void set_cursor_position(const unsigned int& x, const unsigned int& y)
+{
+	move(y, x);
+}
+
+void print(const std::string& str)
+{
+	printw("%s", str.c_str());
+	refresh();
+}
+
+std::string get()
+{
+	char buff[100];
+	getstr(buff);
+	return std::string(buff);
+}
+
+void platform_exit()
+{
+	endwin();
 }
 #endif
 
-const unsigned int thread_n = std::thread::hardware_concurrency();
-const BIGGEST_CPP_TYPE max_universe_size = get_available_system_memory() / sizeof(SMALLEST_CPP_TYPE);
-
-void cpucycle_monitor(unsigned int *counter)
+void put_console(const std::string& str)
 {
-    unsigned int last = 0;
-    while (true)
-    {
-        unsigned int current = rdtsc();
-        if (last > current)
-            counter[1]++;
-        counter[0] = current;
-        last = current;
-    }
+	set_cursor_position(0, console_line++);
+	print(str);
 }
 
-SMALLEST_CPP_TYPE *universe;
+void put_system(const std::string& str, const bool& new_line = true)
+{
+	unsigned int x;
+	unsigned int y;
+	get_cursor_position(x, y);
+	set_cursor_position(50, system_line++);
+	if (!new_line)
+		system_line--;
+	print(str);
+	set_cursor_position(x, y);
+}
+
+#pragma endregion
+
+#pragma region UNIVERSE PROPERTIES
+
+struct properties
+{
+public:
+	DECIMAL_TYPE c = 0;
+	DECIMAL_TYPE h = 0;
+	DECIMAL_TYPE G = 0;
+	DECIMAL_TYPE e = 0;
+	unsigned int parallelization = 0;
+	BIGGEST_CPP_TYPE universe_size = 0;
+	BIGGEST_CPP_TYPE observable_universe_size = 0;
+	unsigned int output_precision = 0;
+	SMALLEST_CPP_TYPE* space = 0;
+	std::atomic<BIGGEST_CPP_TYPE*> time = 0;
+
+	std::string to_string()
+	{
+		return std::to_string(c) + "," + std::to_string(h) + "," + std::to_string(G) + "," + std::to_string(e);
+	}
+};
+
+properties prop;
+
+#pragma endregion
+
+#pragma region USEFULL FUNCTION
+
+std::vector<std::string> split_string(const std::string& str, const char& delim)
+{
+	std::stringstream ss(str);
+	std::string segment;
+	std::vector<std::string> seglist;
+
+	while (std::getline(ss, segment, delim))
+		seglist.push_back(segment);
+
+	return seglist;
+}
+
+#pragma endregion
+
+void cpucycle_monitor()
+{
+	BIGGEST_CPP_TYPE last = 0;
+	while (true)
+	{
+		BIGGEST_CPP_TYPE current = rdtsc();
+		if (last > current)
+			prop.time[1]++;
+		prop.time[0] = current;
+		last = current;
+	}
+}
 
 template <typename T>
-void light_travel(unsigned int *counter)
+void light_travel(const unsigned int& tours)
 {
-    T pos = 0;
-    unsigned int start[2];
-    unsigned int stop[2];
-    std::chrono::_V2::system_clock::time_point start_time;
-    memset(start, 0, sizeof(start));
-    memset(stop, 0, sizeof(stop));
-    std::ofstream output("c");
+	put_system("Light travel started...");
 
-    while (universe == nullptr)
-        std::cout << "Waiting for the end of creation..." << std::endl;
+	T pos = 0;
+	BIGGEST_CPP_TYPE start[2] = {};
+	BIGGEST_CPP_TYPE stop[2] = {};
 
-    while (true)
-    {
-        universe[pos - 1] = 0;
-        universe[pos] = 1;
-        if (pos == 0 && stop[0] == 0 && stop[1] == 0)
-        {
-            if (start[0] != 0 && start[0] != 0)
-            {
-                stop[0] = counter[0];
-                stop[1] = counter[1];
+	std::ofstream output("c.csv");
+	output << std::setprecision(prop.output_precision);
 
-                double s_delta = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start_time).count() / 1000000000.0;
-                double c = (pow(2.0, 32.0) * ((double)stop[1] - (double)start[1]) + ((double)stop[0] - (double)start[0])) / s_delta;
-                // std::cout << c << std::endl;
-                output << std::setprecision(OUTPUT_PRECISION) << c << std::endl;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
+	unsigned int tour = 0;
+	while (tour < tours)
+	{
+		if (pos == 0)
+		{
+			// no code here!!
 
-            memset(start, 0, sizeof(start));
-            memset(stop, 0, sizeof(stop));
-            start[0] = counter[0];
-            start[1] = counter[1];
-            start_time = std::chrono::high_resolution_clock::now();
-        }
+			stop[0] = prop.time[0];
+			stop[1] = prop.time[1];
 
-        pos++;
-    }
+			// do not save first tour
+			if (tour++ > 0)
+			{
+				BIGGEST_CPP_TYPE deltaT = pow(2.0, 32.0) * (stop[1] - start[1]) + stop[0] - start[0];
+				if (deltaT != 0)
+				{
+					DECIMAL_TYPE c = prop.observable_universe_size / deltaT;
+					prop.c = c;
 
-    output.close();
+					output << prop.to_string() << std::endl;
+					put_system("Light travel (" + std::to_string(tour - 1) + ")", false);
+				}
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+			start[0] = prop.time[0];
+			start[1] = prop.time[1];
+
+			// no code here!!
+		}
+
+		prop.space[pos - 1] = 0;
+		prop.space[pos++] = 1;
+	}
+
+	output.close();
+	put_system("Light travel completed");
 }
 
-std::vector<std::string> split_string(const std::string &str, const char delim)
+#pragma region COMMANDS
+
+void help()
 {
-    std::vector<std::string> ret;
-    std::stringstream ss(str);
-
-    std::string s;
-    while (std::getline(ss, s, delim))
-        ret.push_back(s);
-
-    return ret;
+	put_console("help: print this help");
+	put_console("exit: terminate the process");
+	put_console("quit: terminate the process");
+	put_console("clear: clear console");
+	put_console("saturate S: saturate the computational power of the universe for S giga ticks");
+	put_console("dense D: create a dense universe where VAL is the density");
+	put_console("startlight T: start a light simulation with duration T tours of the universe");
 }
 
-std::string help()
+void exit()
 {
-    return "help: print this help\n"
-           "saturate t: saturate the computational power of the universe for t time";
+	platform_exit();
 }
 
-void while_true(const BIGGEST_CPP_TYPE &t)
+void clear()
 {
-    std::chrono::_V2::system_clock::time_point start_time = std::chrono::high_resolution_clock::now();
-    while (std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start_time).count() < t)
-    {
-    }
+	std::system("cls");
+	system_line = 0;
+	console_line = 0;
+	set_cursor_position(0, 0);
 }
 
-void saturate(const std::vector<std::string> &args)
+void saturate(const std::vector<std::string>& args)
 {
-    BIGGEST_CPP_TYPE t = 5000000000;
-    for (unsigned int i = 0; i < thread_n; i++)
-        std::thread(while_true, t).detach();
+	if (args.size() != 1)
+		throw std::runtime_error("saturate has 1 arguments, provided " + std::to_string(args.size()));
+
+	put_system("Saturation starting...");
+	bool* completed = new bool[prop.parallelization];
+	memset(completed, false, prop.parallelization * sizeof(*completed));
+	BIGGEST_CPP_TYPE gTicks = std::stoull(args[0]);
+
+	for (unsigned int i = 0; i < prop.parallelization; i++)
+		std::thread([gTicks, i, completed]
+			{
+				BIGGEST_CPP_TYPE ticks = gTicks * 1000000000;
+				BIGGEST_CPP_TYPE start[2];
+				start[0] = prop.time[0];
+				start[1] = prop.time[1];
+				while (pow(2.0, 32.0) * (prop.time[1] - start[1]) + prop.time[0] - start[0] < ticks) {}
+				completed[i] = true; })
+		.detach();
+
+				std::thread([completed]
+					{
+						while (true)
+						{
+							bool comp = true;
+							for (unsigned int i = 0; i < prop.parallelization; i++)
+								comp &= completed[i];
+							if (comp)
+								break;
+						}
+						put_system("Saturation completed"); })
+					.detach();
 }
 
-void move()
+void dense(const std::vector<std::string>& args)
 {
-    unsigned int *universe = new unsigned int[100];
-    memset(universe, 0, 100 * sizeof(*universe));
-
-    const unsigned int start = 0;
-    const unsigned int mass = 5;
-    for (unsigned int i = start; i < start + mass; i++)
-        universe[i] = 1;
-
-    std::random_device dev;
-    std::mt19937 rng(dev());
-    std::uniform_int_distribution<std::mt19937::result_type> dist(0, mass - 1); // distribution in range [1, 6]
-
-    while (true)
-    {
-        unsigned int rand = dist(rng);
-        if (universe[rand] == 1)
-            universe[rand] = 0;
-        else if (universe[rand] == 0 && universe[rand + 1] == 0)
-            universe[rand + 1] = 1;
-
-        for (unsigned int i = 0; i < 100; i++)
-            std::cout << universe[i];
-        std::cout << std::endl;
-
-        bool m = true;
-        for (unsigned int i = start + 1; i < start + 1 + mass && m; i++)
-            m &= universe[i] == 1;
-
-        if (m)
-            break;
-    }
 }
+
+void startlight(const std::vector<std::string>& args)
+{
+	if (args.size() != 1)
+		throw std::runtime_error("startlight has 1 arguments, provided " + std::to_string(args.size()));
+
+	const unsigned int tours = std::stoull(args[0]) + 1;
+	std::thread light_travel_simulation;
+	if (prop.observable_universe_size == ULLONG_MAX)
+		light_travel_simulation = std::thread(light_travel<unsigned long long int>, tours);
+	else if (prop.observable_universe_size > ULONG_MAX)
+		light_travel_simulation = std::thread(light_travel<unsigned long int>, tours);
+	else if (prop.observable_universe_size > UINT_MAX)
+		light_travel_simulation = std::thread(light_travel<unsigned int>, tours);
+	else if (prop.observable_universe_size > USHRT_MAX)
+		light_travel_simulation = std::thread(light_travel<unsigned short int>, tours);
+	else if (prop.observable_universe_size > UCHAR_MAX)
+		light_travel_simulation = std::thread(light_travel<unsigned char>, tours);
+	else
+		throw std::runtime_error("Resource not available");
+
+	light_travel_simulation.detach();
+}
+
+#pragma endregion
 
 int main()
 {
-    move();
-    std::cout << std::setprecision(OUTPUT_PRECISION) << "Parallelization: " << thread_n << std::endl;
-    std::cout << "\tTime (1)" << std::endl;
-    std::cout << "\tSingle photo simulation (1)" << std::endl;
-    std::cout << "\tGod (1)" << std::endl;
-    std::cout << "Max Universe size: " << max_universe_size << std::endl;
-    std::cout << "Let there be time..." << std::endl;
-    unsigned int *counter = new unsigned int[2];
-    memset(counter, 0, 2 * sizeof(*counter));
-    std::thread cpucycle_monitor_thread(cpucycle_monitor, counter);
-    cpucycle_monitor_thread.detach();
-    std::cout << "Time created" << std::endl;
+	put_system("Creating universe...");
 
-    std::thread light_travel_simulation;
-    unsigned long long observable_universe_size;
-    if (max_universe_size > ULLONG_MAX)
-    {
-        observable_universe_size = ULLONG_MAX;
-        light_travel_simulation = std::thread(light_travel<unsigned long long int>, counter);
-    }
-    else if (max_universe_size > ULONG_MAX)
-    {
-        observable_universe_size = ULONG_MAX;
-        light_travel_simulation = std::thread(light_travel<unsigned long int>, counter);
-    }
-    else if (max_universe_size > UINT_MAX)
-    {
-        observable_universe_size = UINT_MAX;
-        light_travel_simulation = std::thread(light_travel<unsigned int>, counter);
-    }
-    else if (max_universe_size > USHRT_MAX)
-    {
-        observable_universe_size = USHRT_MAX;
-        light_travel_simulation = std::thread(light_travel<unsigned short int>, counter);
-    }
-    else if (max_universe_size > UCHAR_MAX)
-    {
-        observable_universe_size = UCHAR_MAX;
-        light_travel_simulation = std::thread(light_travel<unsigned char>, counter);
-    }
-    else
-        return -1;
+	prop.parallelization = std::thread::hardware_concurrency();
+	prop.universe_size = get_available_system_memory() / sizeof(SMALLEST_CPP_TYPE);
+	prop.output_precision = 20;
 
-    light_travel_simulation.detach();
+	put_system("Let there be time...");
+	prop.time = new BIGGEST_CPP_TYPE[2];
+	memset(prop.time, 0, 2 * sizeof(*(prop.time)));
+	std::thread cpucycle_monitor_thread(cpucycle_monitor);
+	cpucycle_monitor_thread.detach();
+	put_system("Time created");
 
-    std::cout << "Creating space..." << std::endl;
-    universe = new SMALLEST_CPP_TYPE[observable_universe_size];
-    memset(universe, 0, observable_universe_size * sizeof(*universe));
-    std::cout << "Space created" << std::endl;
+	put_system("Let there be space...");
+	if (prop.universe_size > ULLONG_MAX)
+		prop.observable_universe_size = ULLONG_MAX;
+	else if (prop.universe_size > ULONG_MAX)
+		prop.observable_universe_size = ULONG_MAX;
+	else if (prop.universe_size > UINT_MAX)
+		prop.observable_universe_size = UINT_MAX;
+	else if (prop.universe_size > USHRT_MAX)
+		prop.observable_universe_size = USHRT_MAX;
+	else if (prop.universe_size > UCHAR_MAX)
+		prop.observable_universe_size = UCHAR_MAX;
+	else
+		throw std::runtime_error("Resource not available");
 
-    std::cout << "Observable universe size: " << observable_universe_size << std::endl;
+	prop.space = new SMALLEST_CPP_TYPE[prop.observable_universe_size];
+	memset(prop.space, 0, prop.observable_universe_size * sizeof(*(prop.space)));
+	put_system("Space created");
 
-    while (true)
-    {
-        std::cout << "con-sol-e$ ";
-        std::string command;
-        std::cin >> command;
-        if (command == "help")
-            std::cout << help() << std::endl;
-        else if (command == "saturate")
-            saturate(split_string(command, ' '));
-        else
-            std::cout << "Unknown command " << command << std::endl
-                      << "Please consider the following list of commands" << std::endl
-                      << help() << std::endl;
-    }
+	while (true)
+	{
+		try
+		{
+			put_console("conSOLe$ ");
+			std::string command = get();
+			std::vector<std::string> cmds = split_string(command, ' ');
+			if (cmds.size() == 0)
+				continue;
+
+			command = cmds[0];
+			std::vector<std::string> args;
+			for (unsigned int i = 1; i < cmds.size(); i++)
+				args.push_back(cmds[i]);
+
+			if (command == "help")
+				help();
+			else if (command == "exit" || command == "quit")
+				exit();
+			else if (command == "clear")
+				clear();
+			else if (command == "saturate")
+				saturate(args);
+			else if (command == "dense")
+				dense(args);
+			else if (command == "startlight")
+				startlight(args);
+			else
+			{
+				put_console("Unknown command " + command);
+				put_console("Please consider the following list of commands");
+				help();
+			}
+		}
+		catch (std::exception& ex)
+		{
+			put_console("ERROR: " + std::string(ex.what()));
+		}
+	}
 }

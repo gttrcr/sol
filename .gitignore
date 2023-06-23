@@ -1,0 +1,5 @@
+sol/.vs/*
+sol/sol/x64/*
+sol/x64/*
+*.csv
+main
