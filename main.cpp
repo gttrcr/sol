@@ -38,7 +38,7 @@ BIGGEST_CPP_TYPE get_available_system_memory()
 	return status.ullAvailPhys;
 }
 
-void get_cursor_position(unsigned int& x, unsigned int& y)
+void get_cursor_position(unsigned int &x, unsigned int &y)
 {
 	CONSOLE_SCREEN_BUFFER_INFO cbsi;
 	GetConsoleScreenBufferInfo(hConsole, &cbsi);
@@ -46,13 +46,13 @@ void get_cursor_position(unsigned int& x, unsigned int& y)
 	y = cbsi.dwCursorPosition.Y;
 }
 
-void set_cursor_position(const unsigned int& x, const unsigned int& y)
+void set_cursor_position(const unsigned int &x, const unsigned int &y)
 {
-	COORD pos = { x, y };
+	COORD pos = {x, y};
 	SetConsoleCursorPosition(hConsole, pos);
 }
 
-void print(const std::string& str)
+void print(const std::string &str)
 {
 	std::cout << str;
 }
@@ -64,8 +64,25 @@ std::string get()
 	return str;
 }
 
+void clear()
+{
+	std::system("cls");
+}
+
+void prepare_console()
+{
+	CONSOLE_CURSOR_INFO cursorInfo;
+	GetConsoleCursorInfo(out, &cursorInfo);
+	cursorInfo.bVisible = false;
+	SetConsoleCursorInfo(out, &cursorInfo);
+}
+
 void platform_exit()
 {
+	CONSOLE_CURSOR_INFO cursorInfo;
+	GetConsoleCursorInfo(out, &cursorInfo);
+	cursorInfo.bVisible = true;
+	SetConsoleCursorInfo(out, &cursorInfo);
 }
 #else
 #include <x86intrin.h>
@@ -73,13 +90,13 @@ void platform_exit()
 #include <sys/types.h>
 #include <sys/sysinfo.h>
 #include <ncurses.h>
-WINDOW* win = initscr();
+WINDOW *win = initscr();
 
 BIGGEST_CPP_TYPE rdtsc()
 {
 	unsigned int lo, hi;
 	__asm__ __volatile__("rdtsc"
-		: "=a"(lo), "=d"(hi));
+						 : "=a"(lo), "=d"(hi));
 	return ((uint64_t)hi << 32) | lo;
 }
 
@@ -90,17 +107,17 @@ BIGGEST_CPP_TYPE get_available_system_memory()
 	return memInfo.freeram;
 }
 
-void get_cursor_position(unsigned int& x, unsigned int& y)
+void get_cursor_position(unsigned int &x, unsigned int &y)
 {
 	getyx(win, y, x);
 }
 
-void set_cursor_position(const unsigned int& x, const unsigned int& y)
+void set_cursor_position(const unsigned int &x, const unsigned int &y)
 {
 	move(y, x);
 }
 
-void print(const std::string& str)
+void print(const std::string &str)
 {
 	printw("%s", str.c_str());
 	refresh();
@@ -113,26 +130,29 @@ std::string get()
 	return std::string(buff);
 }
 
+void prepare_console()
+{
+	curs_set(0);
+}
+
 void platform_exit()
 {
 	endwin();
 }
 #endif
 
-void put_console(const std::string& str)
+void put_console(const std::string &str)
 {
 	set_cursor_position(0, console_line++);
 	print(str);
 }
 
-void put_system(const std::string& str, const bool& new_line = true)
+void put_system(const std::string &str)
 {
 	unsigned int x;
 	unsigned int y;
 	get_cursor_position(x, y);
 	set_cursor_position(50, system_line++);
-	if (!new_line)
-		system_line--;
 	print(str);
 	set_cursor_position(x, y);
 }
@@ -152,8 +172,8 @@ public:
 	BIGGEST_CPP_TYPE universe_size = 0;
 	BIGGEST_CPP_TYPE observable_universe_size = 0;
 	unsigned int output_precision = 0;
-	SMALLEST_CPP_TYPE* space = 0;
-	std::atomic<BIGGEST_CPP_TYPE*> time = 0;
+	SMALLEST_CPP_TYPE *space = 0;
+	std::atomic<BIGGEST_CPP_TYPE *> time = 0;
 
 	std::string to_string()
 	{
@@ -167,7 +187,7 @@ properties prop;
 
 #pragma region USEFULL FUNCTION
 
-std::vector<std::string> split_string(const std::string& str, const char& delim)
+std::vector<std::string> split_string(const std::string &str, const char &delim)
 {
 	std::stringstream ss(str);
 	std::string segment;
@@ -195,7 +215,7 @@ void cpucycle_monitor()
 }
 
 template <typename T>
-void light_travel(const unsigned int& tours)
+void light_travel(const unsigned int &tours)
 {
 	put_system("Light travel started...");
 
@@ -226,11 +246,9 @@ void light_travel(const unsigned int& tours)
 					prop.c = c;
 
 					output << prop.to_string() << std::endl;
-					put_system("Light travel (" + std::to_string(tour - 1) + ")", false);
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				}
 			}
-
-			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
 			start[0] = prop.time[0];
 			start[1] = prop.time[1];
@@ -264,37 +282,37 @@ void exit()
 	platform_exit();
 }
 
-void clear()
+void clear_console()
 {
-	std::system("cls");
+	clear();
 	system_line = 0;
 	console_line = 0;
 	set_cursor_position(0, 0);
 }
 
-void saturate(const std::vector<std::string>& args)
+void saturate(const std::vector<std::string> &args)
 {
 	if (args.size() != 1)
 		throw std::runtime_error("saturate has 1 arguments, provided " + std::to_string(args.size()));
 
 	put_system("Saturation starting...");
-	bool* completed = new bool[prop.parallelization];
+	std::atomic<bool *> completed = new bool[prop.parallelization];
 	memset(completed, false, prop.parallelization * sizeof(*completed));
 	BIGGEST_CPP_TYPE gTicks = std::stoull(args[0]);
 
 	for (unsigned int i = 0; i < prop.parallelization; i++)
-		std::thread([gTicks, i, completed]
-			{
+		std::thread([gTicks, i, &completed]
+					{
 				BIGGEST_CPP_TYPE ticks = gTicks * 1000000000;
 				BIGGEST_CPP_TYPE start[2];
 				start[0] = prop.time[0];
 				start[1] = prop.time[1];
 				while (pow(2.0, 32.0) * (prop.time[1] - start[1]) + prop.time[0] - start[0] < ticks) {}
 				completed[i] = true; })
-		.detach();
+			.detach();
 
-				std::thread([completed]
-					{
+	std::thread([&completed]
+				{
 						while (true)
 						{
 							bool comp = true;
@@ -304,14 +322,10 @@ void saturate(const std::vector<std::string>& args)
 								break;
 						}
 						put_system("Saturation completed"); })
-					.detach();
+		.detach();
 }
 
-void dense(const std::vector<std::string>& args)
-{
-}
-
-void startlight(const std::vector<std::string>& args)
+void startlight(const std::vector<std::string> &args)
 {
 	if (args.size() != 1)
 		throw std::runtime_error("startlight has 1 arguments, provided " + std::to_string(args.size()));
@@ -338,6 +352,7 @@ void startlight(const std::vector<std::string>& args)
 
 int main()
 {
+	prepare_console();
 	put_system("Creating universe...");
 
 	prop.parallelization = std::thread::hardware_concurrency();
@@ -389,11 +404,11 @@ int main()
 			else if (command == "exit" || command == "quit")
 				exit();
 			else if (command == "clear")
-				clear();
+				clear_console();
 			else if (command == "saturate")
 				saturate(args);
 			else if (command == "dense")
-				dense(args);
+				; // dense(args);
 			else if (command == "startlight")
 				startlight(args);
 			else
@@ -403,7 +418,7 @@ int main()
 				help();
 			}
 		}
-		catch (std::exception& ex)
+		catch (std::exception &ex)
 		{
 			put_console("ERROR: " + std::string(ex.what()));
 		}
