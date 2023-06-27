@@ -72,17 +72,17 @@ void clear()
 void prepare_console()
 {
 	CONSOLE_CURSOR_INFO cursorInfo;
-	GetConsoleCursorInfo(out, &cursorInfo);
+	GetConsoleCursorInfo(hConsole, &cursorInfo);
 	cursorInfo.bVisible = false;
-	SetConsoleCursorInfo(out, &cursorInfo);
+	SetConsoleCursorInfo(hConsole, &cursorInfo);
 }
 
 void platform_exit()
 {
 	CONSOLE_CURSOR_INFO cursorInfo;
-	GetConsoleCursorInfo(out, &cursorInfo);
+	GetConsoleCursorInfo(hConsole, &cursorInfo);
 	cursorInfo.bVisible = true;
-	SetConsoleCursorInfo(out, &cursorInfo);
+	SetConsoleCursorInfo(hConsole, &cursorInfo);
 }
 #else
 #include <x86intrin.h>
@@ -303,25 +303,26 @@ void saturate(const std::vector<std::string> &args)
 	for (unsigned int i = 0; i < prop.parallelization; i++)
 		std::thread([gTicks, i, &completed]
 					{
-				BIGGEST_CPP_TYPE ticks = gTicks * 1000000000;
-				BIGGEST_CPP_TYPE start[2];
-				start[0] = prop.time[0];
-				start[1] = prop.time[1];
-				while (pow(2.0, 32.0) * (prop.time[1] - start[1]) + prop.time[0] - start[0] < ticks) {}
-				completed[i] = true; })
+						BIGGEST_CPP_TYPE ticks = gTicks * 1000000000;
+						BIGGEST_CPP_TYPE start[2];
+						start[0] = prop.time[0];
+						start[1] = prop.time[1];
+						while (pow(2.0, 32.0) * (prop.time[1] - start[1]) + prop.time[0] - start[0] < ticks) {}
+						completed[i] = true; })
 			.detach();
 
 	std::thread([&completed]
 				{
-						while (true)
-						{
-							bool comp = true;
-							for (unsigned int i = 0; i < prop.parallelization; i++)
-								comp &= completed[i];
-							if (comp)
-								break;
-						}
-						put_system("Saturation completed"); })
+					while (true)
+					{
+						bool comp = true;
+						for (unsigned int i = 0; i < prop.parallelization; i++)
+							comp &= completed[i];
+						if (comp)
+							break;
+						std::this_thread::sleep_for(std::chrono::milliseconds(500));
+					}
+					put_system("Saturation completed"); })
 		.detach();
 }
 

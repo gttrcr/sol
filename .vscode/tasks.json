@@ -6,9 +6,9 @@
             "command": "/usr/bin/g++",
             "args": [
                 "-fdiagnostics-color=always",
-                //"-g",
+                "-g",
                 "${file}",
-                "-O3",
+                //"-O3",
                 "-Wall",
                 "-Werror",
                 "-Wpedantic",
